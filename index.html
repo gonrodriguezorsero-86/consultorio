@@ -197,6 +197,33 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   header.top{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 }
 html,body{max-width:100%;overflow-x:hidden}
+/* abrir una tarjeta en pantalla completa para editar cómodo */
+.card>h3{display:flex;align-items:center;gap:8px}
+.big-btn{margin-left:auto;border:1px solid var(--line);background:#fff;border-radius:7px;padding:4px 9px;font:500 12px var(--sans);letter-spacing:0;text-transform:none;color:var(--ink);cursor:pointer;white-space:nowrap}
+.card.full{position:fixed;inset:0;z-index:45;margin:0;border-radius:0;border:0;max-width:none;width:auto;overflow:auto;
+  padding:calc(16px + env(safe-area-inset-top,0px)) max(18px,env(safe-area-inset-right,0px)) calc(28px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px))}
+.card.full>h3{position:sticky;top:calc(-16px - env(safe-area-inset-top,0px));background:var(--card);margin:calc(-16px - env(safe-area-inset-top,0px)) -18px 4px;padding:calc(14px + env(safe-area-inset-top,0px)) 18px 12px;border-bottom:1px solid var(--line);z-index:2;font-size:14px}
+.card.full .tw,.card.full .hist{max-height:none}
+@media(min-width:701px){.card.full .desk-only{display:revert}}
+@media(max-width:700px){
+  #ar-card.full thead{display:none}
+  #ar-card.full table, #ar-card.full tbody{display:block}
+  #ar-card.full tr{display:grid;grid-template-columns:1fr 44px;gap:6px 8px;padding:10px 0;border-bottom:1px solid var(--line)}
+  #ar-card.full td{display:block;padding:0;border:0}
+  #ar-card.full td:nth-child(2){display:none}
+  #ar-card.full td:nth-child(1){grid-column:1/2}
+  #ar-card.full td:nth-child(3){grid-column:1/2;grid-row:2}
+  #ar-card.full td:nth-child(4){grid-column:2;grid-row:1/3;align-self:center;text-align:center}
+  #ar-card.full td:nth-child(3)::before{content:"Precio $";display:block;font-size:12px;color:var(--mut);margin-bottom:2px}
+  #ar-card.full .tw{border:0}
+  #ar-card.full tr:last-child{border-bottom:0}
+}
+body.has-full{overflow:hidden}
+@media(max-width:700px){
+  input,select,textarea{font-size:16px}
+  dialog,dialog.evo,dialog.ficha{width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;margin:0;border:0;border-radius:0;padding-top:calc(18px + env(safe-area-inset-top,0px));padding-bottom:calc(18px + env(safe-area-inset-bottom,0px))}
+  dialog.ficha{padding-top:env(safe-area-inset-top,0px)}
+}
 </style>
 </head>
 <body>
@@ -2298,6 +2325,20 @@ async function iniciar(){
   setTimeout(()=>toast(msg, g!=='ok'), 800); LS.set('rn_tab','ajustes'); u.searchParams.delete('gcal'); u.searchParams.delete('msg'); history.replaceState(null,'',u.pathname+u.search); })();
 if (conn) conectar();
 iniciar();
+/* ---------- tarjetas a pantalla completa ---------- */
+(function(){
+  const sel='#v-ajustes .card, #v-caja .card, #v-finanzas .card';
+  function close(c){ c.classList.remove('full'); const b=c.querySelector(':scope>h3>.big-btn'); if(b) b.textContent='Abrir grande'; document.body.classList.toggle('has-full', !!document.querySelector('.card.full')); }
+  function open(c){ document.querySelectorAll('.card.full').forEach(close); c.classList.add('full'); c.scrollTop=0; const b=c.querySelector(':scope>h3>.big-btn'); if(b) b.textContent='Cerrar'; document.body.classList.add('has-full'); }
+  function add(){ document.querySelectorAll(sel).forEach(c=>{ const h=c.querySelector(':scope>h3'); if(!h||h.querySelector('.big-btn')) return;
+    if(!c.querySelector('input,select,textarea,table')) return;
+    const b=document.createElement('button'); b.type='button'; b.className='big-btn'; b.textContent='Abrir grande';
+    b.addEventListener('click',e=>{ e.preventDefault(); e.stopPropagation(); c.classList.contains('full')?close(c):open(c); });
+    h.appendChild(b); }); }
+  add(); new MutationObserver(add).observe(document.getElementById('v-app'),{childList:true,subtree:true});
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ const f=document.querySelector('.card.full'); if(f&&!document.querySelector('dialog[open]')) close(f); } });
+  document.querySelector('nav.tabs').addEventListener('click',()=>document.querySelectorAll('.card.full').forEach(close));
+})();
 setInterval(()=>{ if(!$('#v-app').hidden && vista==='agenda' && !document.querySelector('dialog[open]')) pintarAgenda().catch(()=>{}); }, 60000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 /* ---------- instalar como app ---------- */
