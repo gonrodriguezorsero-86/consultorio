@@ -187,7 +187,16 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   nav.tabs{order:3;width:100%;justify-content:space-between}nav.tabs button{flex:1;padding:8px 2px;font-size:13px;min-width:0}
   .row3{grid-template-columns:1fr 1fr}.agbar .ttl{min-width:0;font-size:15px}
   .desk-only{display:none}.mobile-only{display:initial}
+  /* pestañas en el celu: dos filas, todas visibles, sin encimarse */
+  nav.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:3px}
+  nav.tabs button{padding:9px 2px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+  /* nada más ancho que la pantalla */
+  .pcols>*,.aglay>*,.cards>*,.grid>*{min-width:0}
+  .cards{grid-template-columns:1fr}
+  table.t{display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  header.top{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 }
+html,body{max-width:100%;overflow-x:hidden}
 </style>
 </head>
 <body>
