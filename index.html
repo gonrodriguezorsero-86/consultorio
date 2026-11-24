@@ -407,6 +407,8 @@ body.has-full{overflow:hidden}
 
     <!-- LABORATORIO -->
     <section id="v-lab" hidden>
+      <div class="seg" id="lab-vista" style="align-self:flex-start;margin-bottom:10px;display:inline-flex"><button data-lv="trab" class="on">Trabajos</button><button data-lv="reg">Registro de Trabajos</button></div>
+      <div id="lab-trab">
       <div class="toolbar">
         <div class="seg" id="lab-f"><button data-f="act" class="on">Sin entregar</button><button data-f="ent">Entregados</button><button data-f="all">Todos</button></div>
         <input id="lab-q" type="search" placeholder="Buscar paciente, odontólogo o trabajo" autocomplete="off">
@@ -414,7 +416,9 @@ body.has-full{overflow:hidden}
         <button class="btn" id="lab-nuevo">+ Trabajo</button>
       </div>
       <div class="tw"><table class="t"><thead><tr><th>Paciente</th><th>Odontólogo</th><th>Trabajo</th><th>Entrega</th><th>Estado</th><th class="desk-only">Precio</th></tr></thead><tbody id="lab-list"></tbody></table></div>
-      <p class="hint" style="margin-top:8px">Estos trabajos vienen de G3 Lab de la PC y se actualizan solos. Los escaneos y archivos quedan en la PC.<span class="desk-only"> <a href="http://localhost:8765/" target="g3lab" rel="noopener">Abrir G3 Lab en esta compu</a> (tiene que estar abierto).</span></p>
+      <p class="hint" style="margin-top:8px">Estos trabajos vienen de G3 Lab de la PC y se actualizan solos. Los escaneos y archivos quedan en la PC.<span class="desk-only"> <a href="http://localhost:8765/" target="g3lab" rel="noopener">Abrir G3 Lab en esta compu</a> (tiene que estar abierto).</span> Los STL y fotos de cada caso se copian a tu Google Drive (carpeta G3 Lab).</p>
+      </div>
+      <div id="lab-reg" hidden></div>
     </section>
 
     <!-- AJUSTES -->
@@ -690,6 +694,7 @@ body.has-full{overflow:hidden}
   <div class="row3"><label>Entrega<input name="entrega" type="date"></label><label>Estado<select name="estado"><option>Pendiente</option><option>En diseño</option><option>Listo</option><option>Entregado</option></select></label><label>Precio<input name="precio" type="number" min="0" inputmode="numeric"></label></div>
   <label>Notas<textarea name="notas" rows="2"></textarea></label>
   <p class="hint" id="lab-info"></p>
+  <div id="lab-arch" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><a class="btn ghost" id="lab-drive" target="_blank" rel="noopener">Ver STL y fotos en Drive</a><label class="btn ghost" style="display:inline-flex;flex-direction:row;color:var(--ink);font-size:14px;cursor:pointer">Ver un STL en 3D<input type="file" id="lab-stl" accept=".stl,.ply,.obj,.zip" hidden></label><button type="button" class="btn" id="lab-cobrar" hidden>Registrar para cobrar</button></div>
   <div class="dacts"><span class="l"><button type="button" class="btn danger" id="lab-del">Borrar</button></span><button type="button" class="btn ghost" id="lab-cancel">Cerrar</button><button class="btn">Guardar</button></div>
 </form></dialog>
 <datalist id="dl-cli"></datalist>
@@ -2347,8 +2352,33 @@ function abrirLab(j){
   if(!j) f.estado.value='Pendiente'; f.precio.value=j&&+j.precio?j.precio:'';
   $('#lab-del').hidden=!j; $('#lab-del').dataset.c=''; $('#lab-del').textContent='Borrar';
   $('#lab-info').textContent = j&&j.carpeta ? 'Archivos en la PC: '+j.carpeta : (j?'Todavía sin archivos en la PC.':'');
+  $('#lab-arch').hidden=!j; if(j) $('#lab-drive').href=driveUrl(j.paciente);
+  $('#lab-cobrar').hidden=!(j&&j.estado==='Entregado'); $('#lab-cobrar').textContent='Registrar para cobrar';
+  if(j&&j.estado==='Entregado') regDe(j.id).then(r=>{ if(r&&labEdit===j) $('#lab-cobrar').textContent='Ya está en el Registro · ver'; });
   $('#d-lab').showModal();
 }
+/* Registro de Trabajos (cobros del laboratorio) y archivos de cada caso */
+const driveUrl = p => 'https://drive.google.com/drive/search?q='+encodeURIComponent(p||'');
+let regApp=null, regCargando=null;
+async function regMontar(){
+  if (regApp) return regApp;
+  if (!regCargando) regCargando = import('./registro-lab.js').then(m=>{ regApp = m.montarRegistro({ sb, contenedor: $('#lab-reg'), toast, errMsg, linkArchivos: driveUrl }); return regApp; });
+  return regCargando;
+}
+async function regDe(jobId){ try{ const { data } = await sb.from('config').select('valor').eq('clave','lab_registro').maybeSingle(); const it=data&&data.valor&&data.valor.items||{}; return Object.values(it).some(x=>!x._del&&x.jobId===jobId); }catch(e){ return false; } }
+async function labVista(v){
+  $$('#lab-vista button').forEach(b=>b.classList.toggle('on', b.dataset.lv===v));
+  $('#lab-trab').hidden = v!=='trab'; $('#lab-reg').hidden = v!=='reg';
+  if (v==='reg'){ try{ (await regMontar()).enter(); }catch(e){ toast(errMsg(e), true); } } else pintarLab();
+}
+$('#lab-vista').addEventListener('click', e=>{ const b=e.target.closest('[data-lv]'); if(b) labVista(b.dataset.lv); });
+$('#lab-cobrar').onclick=async()=>{ const j=labEdit; if(!j) return; $('#d-lab').close(); await labVista('reg');
+  if (await regDe(j.id)) { toast('Ese trabajo ya está en el Registro.'); return; }
+  regApp.desdeTrabajo(j); window.scrollTo(0,0); };
+$('#lab-stl').onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  if(!$('#visor').open) $('#visor').showModal(); visorArch=null; $('#vi-nom').textContent=f.name; $('#vi-vistas').hidden=false; $('#vi-info').textContent='Cargando el escaneo…'; $('#vi-c').innerHTML='';
+  try{ const V=await import('./visor3d.js'); visor = await V.abrirVisor($('#vi-c'), { nombre:f.name, buf: await f.arrayBuffer(), onInfo: i=>{ $('#vi-info').textContent = `${i.capas.join(' · ')} · ${i.mm.join(' × ')} mm · arrastrá para girar, pellizcá para acercar.`; } }); }
+  catch(err){ $('#vi-info').textContent='No se pudo abrir: '+errMsg(err); } };
 $('#lab-cancel').onclick=()=>$('#d-lab').close();
 $('#lab-del').onclick=async()=>{ const b=$('#lab-del'); if(!b.dataset.c){ b.dataset.c='1'; b.textContent='Tocá otra vez para borrar'; return; }
   try{ await q(sb.from('lab_trabajos').update({borrado:true}).eq('id', labEdit.id)); $('#d-lab').close(); toast('Trabajo borrado.'); pintarLab(); }catch(e){ toast(errMsg(e), true); } };
