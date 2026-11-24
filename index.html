@@ -94,6 +94,7 @@ main{padding:12px 16px calc(40px + env(safe-area-inset-bottom,0px));margin:0 aut
 .item .acts{display:flex;gap:6px;flex-shrink:0}
 .item.done .t b{text-decoration:line-through;color:var(--mut)}
 .pill{font-size:11px;border-radius:999px;padding:2px 8px;background:#efeee8;color:var(--mut);white-space:nowrap}
+.trbar{display:inline-block;width:46px;height:6px;border-radius:9px;background:#efeee8;vertical-align:1px;margin-right:6px;overflow:hidden}.trbar i{display:block;height:100%;background:var(--ok)}
 .pill.ok{background:#e9f6ef;color:var(--ok)}.pill.bad{background:#fbe9e7;color:var(--bad)}.pill.acc{background:var(--soft);color:#7a6100}
 /* listas */
 .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
@@ -275,6 +276,7 @@ body.has-full{overflow:hidden}
       <button role="tab" data-v="agenda" aria-selected="true">Agenda</button>
       <button role="tab" data-v="pacientes" aria-selected="false">Pacientes</button>
       <button role="tab" data-v="pendientes" aria-selected="false">Pendientes <span class="badge" id="pend-n" hidden></span></button>
+      <button role="tab" data-v="tratamientos" aria-selected="false">Tratamientos <span class="badge" id="tr-n" hidden></span></button>
       <button role="tab" data-v="caja" aria-selected="false">Caja</button>
       <button role="tab" data-v="finanzas" aria-selected="false">Finanzas</button>
       <button role="tab" data-v="lab" aria-selected="false">Laboratorio</button>
@@ -320,6 +322,23 @@ body.has-full{overflow:hidden}
         <div class="card"><h3>Para reprogramar</h3><p class="hint">Faltaron o cancelaron en los últimos 30 días y no tienen turno nuevo.</p><div id="pd-reprog" style="margin-top:6px"></div></div>
         <div class="card"><h3>Laboratorio: por pedir y por recibir</h3><p class="hint">Coronas, placas, prótesis… pedidas a G3 o a otro laboratorio, hasta que se le entregan al paciente.</p><div id="pd-lab" style="margin-top:6px"></div></div>
         <div class="card"><h3>Tareas</h3><p class="hint">Cosas para hacer: llamar, pedir, cobrar, avisar.</p><div id="pd-tareas" style="margin-top:6px"></div></div>
+      </div>
+    </section>
+
+    <!-- TRATAMIENTOS -->
+    <section id="v-tratamientos" hidden>
+      <div class="toolbar">
+        <div class="seg" id="tr-f"><button data-f="30" class="on">30 días</button><button data-f="90">90 días</button><button data-f="365">12 meses</button></div>
+        <select id="tr-prof" style="width:auto;min-width:160px"></select>
+        <span style="flex:1"></span>
+      </div>
+      <p class="hint" id="tr-aviso" hidden style="color:var(--bad)"></p>
+      <div class="pl-res" id="tr-kpi"></div>
+      <div class="pcols" style="margin-top:12px">
+        <div class="card"><h3>Presupuestos por seguir</h3><p class="hint">Los que se llevaron un presupuesto y todavía no arrancaron. Arriba, los que toca escribir hoy.</p><div id="tr-seg" style="margin-top:6px"></div></div>
+        <div class="card"><h3>Tratamientos en curso</h3><p class="hint">Aceptados con prestaciones por hacer. Los que no tienen próximo turno son agenda para llenar.</p><div id="tr-curso" style="margin-top:6px"></div></div>
+        <div class="card"><h3>Sin enviar</h3><p class="hint">Planes armados que todavía no se le mandaron al paciente.</p><div id="tr-borr" style="margin-top:6px"></div></div>
+        <div class="card"><h3>No aceptados</h3><p class="hint">Por qué dijeron que no, en el período elegido. Se pueden reactivar.</p><div id="tr-rech" style="margin-top:6px"></div></div>
       </div>
     </section>
 
@@ -415,6 +434,7 @@ body.has-full{overflow:hidden}
           <label>Recordatorio de turno<textarea name="recordatorio" rows="3"></textarea></label>
           <label>Cumpleaños<textarea name="cumpleanos" rows="2"></textarea></label>
           <label>Control a los 6 meses<textarea name="control" rows="2"></textarea></label>
+          <label>Seguimiento de presupuesto<textarea name="seguimiento" rows="2" placeholder="Hola {nombre}! Te escribo por el plan de tratamiento que te pasamos…"></textarea></label>
           <button class="btn">Guardar</button>
         </form>
         <div class="card" style="display:flex;flex-direction:column;gap:10px">
@@ -626,6 +646,13 @@ body.has-full{overflow:hidden}
   <div class="dacts"><button type="button" class="btn ghost" id="pg-cancel">Cancelar</button><button class="btn">Guardar pago</button></div>
 </form></dialog>
 <datalist id="dl-prest"></datalist>
+<dialog id="d-rech"><form id="f-rech">
+  <h2>No aceptó el presupuesto</h2>
+  <p class="hint" id="rc-pac"></p>
+  <label>Motivo<select name="motivo"><option>Precio</option><option>Lo va a pensar / lo posterga</option><option>Se atiende en otro lado</option><option>Obra social / cobertura</option><option>Miedo o ansiedad</option><option>No responde</option><option>Otro</option></select></label>
+  <label>Detalle (opcional)<input name="detalle" autocomplete="off" placeholder="Ej: quiere hacerlo en marzo"></label>
+  <div class="dacts"><button type="button" class="btn ghost" id="rc-cancel">Cancelar</button><button class="btn">Guardar</button></div>
+</form></dialog>
 <dialog id="d-mov"><form id="f-mov">
   <h2 id="mv-ttl">Egreso</h2>
   <div class="row"><label>Fecha<input name="fecha" type="date" required></label><label>Monto ($)<input name="monto" type="number" min="1" step="1" inputmode="numeric" required></label></div>
@@ -781,7 +808,7 @@ async function cargarBase(){
   ]);
   S.sedes = sedes.filter(x=>x.activo); S.profAll = prof; S.personal = personal;
   S.cons = Object.assign({nombre:'RN Odontología'}, (cfg.find(c=>c.clave==='consultorio')||{}).valor);
-  S.tpl = Object.assign({recordatorio:'',cumpleanos:'',control:''}, (cfg.find(c=>c.clave==='plantillas')||{}).valor);
+  S.tpl = Object.assign({recordatorio:'',cumpleanos:'',control:'',seguimiento:''}, (cfg.find(c=>c.clave==='plantillas')||{}).valor);
   if (!S.sedes.length){ toast('Tu usuario no tiene ninguna sede asignada.', true); return; }
   if (!S.sedes.some(x=>x.id===sedeId)) sedeId = (S.sedes.find(x=>(perfil.sedes||[]).includes(x.id))||S.sedes[0]).id;
   const sel=$('#h-sede-sel');
@@ -821,11 +848,12 @@ $$('nav.tabs button').forEach(b => b.onclick = () => irA(b.dataset.v));
 async function irA(v){
   vista=v; LS.set('rn_tab',v);
   $$('nav.tabs button').forEach(b=>b.setAttribute('aria-selected', b.dataset.v===v));
-  ['agenda','pacientes','pendientes','caja','finanzas','lab','ajustes'].forEach(x=>$('#v-'+x).hidden = x!==v);
+  ['agenda','pacientes','pendientes','tratamientos','caja','finanzas','lab','ajustes'].forEach(x=>$('#v-'+x).hidden = x!==v);
   try{
     if (v==='agenda') await pintarAgenda();
     if (v==='pacientes') { if(!S.pacientes.size) await cargarPacientes(); pintarPacientes(); }
     if (v==='pendientes') await pintarPend();
+    if (v==='tratamientos') await pintarTrat();
     if (v==='caja') await pintarCaja();
     if (v==='finanzas') await pintarFinanzas();
     if (v==='lab') await pintarLab();
@@ -991,7 +1019,7 @@ function pintarLateral(tur, hoy, manana){
   const th = tur.filter(t=>ymd(new Date(t.inicio))===ymd(hoy) && t.estado!=='cancelado');
   const cnt = k => th.filter(t=>t.estado===k).length;
   $('#d-res').innerHTML = `<div class="item"><div class="t"><b>${th.length} ${th.length===1?'turno':'turnos'} hoy</b><span>${cnt('confirmado')} confirmados · ${cnt('atendido')} atendidos · ${cnt('ausente')} ausentes</span></div></div>`;
-  pintarCumples(); pintarPendSide().catch(()=>{});
+  pintarCumples(); pintarPendSide().catch(()=>{}); contarTrat();
 }
 $('#r-list').addEventListener('click', async e=>{
   if (e.target.dataset.a!=='rec') return;
@@ -1890,6 +1918,7 @@ function htmlDoc(titulo, cuerpo){
 }
 function abrirDoc(html){ const w=window.open('', '_blank'); if (!w){ toast('El navegador bloqueó la ventana. Permití ventanas emergentes para imprimir.', true); return; } w.document.open(); w.document.write(html); w.document.close(); }
 function imprimirPlan(pl){
+  marcarPresentado(pl);
   const pr=profById(pl.profesional_id), sub=subtotal(pl), tot=totalPlan(pl);
   abrirDoc(htmlDoc('Presupuesto · '+nombrePac(fiPac), `<h1>Plan de tratamiento y presupuesto</h1>
     <div class="m">Paciente: <b style="color:#111">${esc(nombrePac(fiPac))}</b>${fiPac.dni?' · DNI '+esc(fiPac.dni):''}${fiPac.obra_social?' · '+esc(fiPac.obra_social):''}${pr?'<br>Profesional: '+esc(nombreProf(pr)):''}</div>
@@ -1904,7 +1933,7 @@ function waPlan(pl){
   const tot=totalPlan(pl);
   const lineas=(pl.items||[]).filter(i=>i.nombre).map(i=>`• ${i.nombre}${i.piezas?' ('+i.piezas+(i.caras?' '+i.caras:'')+')':''}: ${$$$((+i.precio||0)*(+i.cant||1))}`).join('\n');
   const txt=`Hola ${fiPac.nombre||''}! Te paso el plan de tratamiento que charlamos:\n\n${lineas}\n${+pl.descuento?`Descuento ${+pl.descuento}%\n`:''}\n*Total: ${$$$(tot)}*${pl.notas?'\n\n'+pl.notas:''}\n\nCualquier duda nos escribís. ${S.cons.nombre||'RN Odontología'}`;
-  if (abrirWa(fiPac, txt) && pl.estado==='borrador'){ pl.estado='presentado'; guardarPlan(pl, true); }
+  if (abrirWa(fiPac, txt)) marcarPresentado(pl);
 }
 // pagos
 function abrirPago(planId, sugerido){
@@ -1946,6 +1975,143 @@ $('#pg-list').addEventListener('click', async e=>{
   if (a.dataset.a==='rec') imprimirRecibo(pg);
   if (a.dataset.a==='del'){ if (a.dataset.c!=='1'){ a.dataset.c='1'; a.textContent='¿Seguro?'; return; } try{ await q(sb.from('pagos').delete().eq('id', pg.id)); toast('Pago borrado.'); pintarPlanes(); }catch(err){ toast(errMsg(err), true); } }
 });
+
+/* ---------- TRATAMIENTOS: seguimiento de presupuestos y tratamientos en curso ---------- */
+const FALTA_SQL5 = 'Para guardar fechas de seguimiento y motivos falta correr el bloque "Etapa 5" de supabase.sql en Supabase → SQL Editor.';
+const TPL_SEG = 'Hola {nombre}! ¿Cómo estás? Te escribo de RN Odontología por el plan de tratamiento que te pasamos. ¿Te quedó alguna duda? Si querés, te reservamos el primer turno para arrancar.';
+const EN_CURSO = ['aceptado','en_curso'];
+let trF = 30, trProf = null, rcPlan = null;
+const aFecha_ = f => new Date(String(f).length===10 ? f+'T12:00:00' : f);
+const diasDesde = f => f ? Math.max(0, Math.round((startDay(new Date())-startDay(aFecha_(f)))/864e5)) : 0;
+const fDM = f => { const d=aFecha_(f); return d.getDate()+'/'+(d.getMonth()+1); };
+const presEn = pl => pl.presentado_en || (pl.estado!=='borrador' ? pl.actualizado : null);
+const seguirEl = pl => pl.seguimiento || (presEn(pl) ? ymd(addDays(aFecha_(presEn(pl)),3)) : hoyYmd());
+const tocaHoy = pl => seguirEl(pl) <= hoyYmd();
+const hace = n => n===0 ? 'hoy' : n===1 ? 'ayer' : 'hace '+n+' días';
+const itemsPend = pl => (pl.items||[]).filter(i=>i.nombre && !i.hecho);
+const descItem = i => i.nombre+(i.piezas?' ('+i.piezas+(i.caras?' '+i.caras:'')+')':'');
+const filtroProf = pl => !trProf || pl.profesional_id===trProf;
+
+// se llama al mandar el presupuesto por WhatsApp o imprimirlo
+async function marcarPresentado(pl){
+  if (pl.estado!=='borrador' || !(pl.items||[]).some(i=>i.nombre)) return;
+  pl.estado='presentado'; guardarPlan(pl, true);
+  pl.seguimiento = ymd(addDays(new Date(),3));
+  try{ await q(sb.from('planes').update({ seguimiento: pl.seguimiento }).eq('id', pl.id)); }catch(e){}
+  setTimeout(contarTrat, 1500);
+}
+async function contarTrat(){
+  if (!sb) return;
+  try{
+    const l = await q(sb.from('planes').select('*').eq('sede_id', sedeId).eq('estado','presentado'));
+    const mio = perfil.rol==='profesional' ? perfil.profesional_id : null;
+    const n = l.filter(pl=>(!mio || pl.profesional_id===mio) && tocaHoy(pl)).length;
+    const b=$('#tr-n'); b.textContent=n||''; b.hidden=!n;
+  }catch(e){}
+}
+async function pintarTrat(){
+  if (!S.pacientes.size) await cargarPacientes();
+  if (trProf===null) trProf = perfil.rol==='profesional' ? (perfil.profesional_id||'') : '';
+  const ps=$('#tr-prof');
+  ps.innerHTML = '<option value="">Todos los profesionales</option>' + S.prof.map(p=>`<option value="${p.id}">${esc(nombreProf(p))}</option>`).join('');
+  ps.value = trProf; ps.hidden = S.prof.length<2;
+  const desde365 = ymd(addDays(new Date(),-366));
+  const [planes, pagos, turnos, espera] = await Promise.all([
+    q(sb.from('planes').select('*').eq('sede_id', sedeId).or(`estado.in.(borrador,presentado,aceptado,en_curso),actualizado.gte.${desde365}`).order('creado',{ascending:false})),
+    q(sb.from('pagos').select('paciente_id,monto').eq('sede_id', sedeId)),
+    q(sb.from('turnos').select('paciente_id,inicio').eq('sede_id', sedeId).gte('inicio', new Date().toISOString()).in('estado',['reservado','confirmado']).order('inicio')),
+    q(sb.from('tareas').select('paciente_id').eq('sede_id', sedeId).eq('tipo','turno').eq('hecho', false))
+  ]);
+  S.trPlanes = planes;
+  $('#tr-aviso').hidden = true;
+  if (planes.length && !('presentado_en' in planes[0])){ $('#tr-aviso').textContent = FALTA_SQL5; $('#tr-aviso').hidden = false; }
+  const l = planes.filter(filtroProf);
+  const prox = new Map(); turnos.forEach(t=>{ if (t.paciente_id && !prox.has(t.paciente_id)) prox.set(t.paciente_id, t.inicio); });
+  const enEspera = new Set(espera.map(t=>t.paciente_id).filter(Boolean));
+  const desde = ymd(addDays(new Date(), -trF));
+  const pac = pl => S.pacientes.get(pl.paciente_id);
+
+  // ---- números del período ----
+  const per = l.filter(pl=>presEn(pl) && ymd(aFecha_(presEn(pl)))>=desde);
+  const acep = per.filter(pl=>VIGENTE.includes(pl.estado));
+  const tasa = per.length ? Math.round(acep.length*100/per.length) : 0;
+  const dias = acep.filter(pl=>pl.aceptado_en && pl.presentado_en).map(pl=>Math.max(0,(new Date(pl.aceptado_en)-new Date(pl.presentado_en))/864e5));
+  const diasProm = dias.length ? Math.round(dias.reduce((s,x)=>s+x,0)/dias.length) : null;
+  const curso = l.filter(pl=>EN_CURSO.includes(pl.estado) && itemsPend(pl).length);
+  const sinHacer = curso.reduce((s,pl)=>s+Math.max(0,totalPlan(pl)-realizadoPlan(pl)),0);
+  const real={}, pag={};
+  l.filter(pl=>VIGENTE.includes(pl.estado)).forEach(pl=>real[pl.paciente_id]=(real[pl.paciente_id]||0)+realizadoPlan(pl));
+  pagos.forEach(p=>{ if (p.paciente_id in real) pag[p.paciente_id]=(pag[p.paciente_id]||0)+(+p.monto||0); });
+  const debe = Object.keys(real).reduce((s,id)=>s+Math.max(0, real[id]-(pag[id]||0)),0);
+  const seg = l.filter(pl=>pl.estado==='presentado').sort((a,b)=>seguirEl(a).localeCompare(seguirEl(b)));
+  const hoyN = seg.filter(tocaHoy).length;
+  const cuarto = perfil.rol==='profesional'
+    ? `<div><span>Para escribir hoy</span><b>${hoyN}</b><span>presupuestos sin respuesta</span></div>`
+    : `<div><span>Por cobrar</span><b style="${debe>0?'color:var(--bad)':''}">${$$$(debe)}</b><span>de lo ya realizado</span></div>`;
+  $('#tr-kpi').innerHTML = `<div><span>Presupuestado (${trF===365?'12 meses':trF+' días'})</span><b>${$$$(per.reduce((s,pl)=>s+totalPlan(pl),0))}</b><span>${per.length} ${per.length===1?'presupuesto':'presupuestos'}</span></div>
+    <div><span>Aceptación</span><b>${per.length?tasa+' %':'—'}</b><span>${acep.length} de ${per.length} · ${$$$(acep.reduce((s,pl)=>s+totalPlan(pl),0))}${diasProm!==null?' · deciden en '+diasProm+' '+(diasProm===1?'día':'días'):''}</span></div>
+    <div><span>Vendido sin hacer</span><b>${$$$(sinHacer)}</b><span>${curso.length} ${curso.length===1?'tratamiento en curso':'tratamientos en curso'}</span></div>
+    ${cuarto}`;
+
+  // ---- presupuestos por seguir ----
+  $('#tr-seg').innerHTML = seg.length ? seg.map(pl=>{ const p=pac(pl), se=seguirEl(pl), h=hoyYmd();
+    const pill = se<h ? `<span class="pill bad">atrasado</span>` : se===h ? `<span class="pill acc">escribir hoy</span>` : `<span class="pill">seguir ${fDM(se)}</span>`;
+    return `<div class="item" data-plan="${pl.id}"><div class="t" data-a="ficha" style="cursor:pointer"><b>${esc(nombrePac(p))}</b><span>${$$$(totalPlan(pl))} · presentado ${hace(diasDesde(presEn(pl)))} ${pill}</span></div><div class="acts">${p&&p.telefono?'<button class="btn wa" data-a="wa" style="padding:6px 10px">WhatsApp</button>':''}<button class="btn" data-a="si" style="padding:6px 10px">Aceptó</button><button class="btn ghost" data-a="no" style="padding:6px 10px">No</button></div></div>`; }).join('')
+    : '<p class="hint">No hay presupuestos esperando respuesta.</p>';
+
+  // ---- tratamientos en curso ----
+  curso.sort((a,b)=>(prox.has(a.paciente_id)-prox.has(b.paciente_id)) || String(a.aceptado_en||a.actualizado).localeCompare(String(b.aceptado_en||b.actualizado)));
+  const sinTurno = curso.filter(pl=>!prox.has(pl.paciente_id)).length;
+  $('#tr-curso').innerHTML = curso.length ? (sinTurno?`<p class="hint" style="margin:0 0 4px"><b style="color:var(--bad)">${sinTurno} sin próximo turno</b></p>`:'') + curso.map(pl=>{ const p=pac(pl), its=(pl.items||[]).filter(i=>i.nombre), hechos=its.filter(i=>i.hecho).length, sig=itemsPend(pl)[0], pt=prox.get(pl.paciente_id), d=real[pl.paciente_id]-(pag[pl.paciente_id]||0);
+    const tp = pt ? `<span class="pill ok">turno ${fDM(pt)}</span>` : enEspera.has(pl.paciente_id) ? `<span class="pill acc">esperando turno</span>` : `<span class="pill bad">sin turno</span>`;
+    return `<div class="item" data-plan="${pl.id}"><div class="t" data-a="ficha" style="cursor:pointer"><b>${esc(nombrePac(p))}</b><span><i class="trbar"><i style="width:${its.length?Math.round(hechos*100/its.length):0}%"></i></i>${hechos}/${its.length} · sigue: ${esc(descItem(sig))} ${tp}${d>0&&perfil.rol!=='profesional'?` <span class="pill">debe ${$$$(d)}</span>`:''}</span></div>${pt?'':`<div class="acts">${p&&p.telefono?'<button class="btn wa" data-a="wa2" style="padding:6px 10px">WhatsApp</button>':''}<button class="btn" data-a="turno" style="padding:6px 10px">Dar turno</button></div>`}</div>`; }).join('')
+    : '<p class="hint">No hay tratamientos en curso con prestaciones pendientes.</p>';
+
+  // ---- sin enviar ----
+  const borr = l.filter(pl=>pl.estado==='borrador' && (pl.items||[]).some(i=>i.nombre));
+  $('#tr-borr').innerHTML = borr.length ? borr.map(pl=>{ const p=pac(pl);
+    return `<div class="item" data-plan="${pl.id}"><div class="t" data-a="ficha" style="cursor:pointer"><b>${esc(nombrePac(p))}</b><span>${$$$(totalPlan(pl))} · armado ${hace(diasDesde(pl.creado))}</span></div><div class="acts"><button class="btn ghost" data-a="ficha" style="padding:6px 10px">Abrir y enviar</button></div></div>`; }).join('')
+    : '<p class="hint">Todo lo armado ya se envió.</p>';
+
+  // ---- no aceptados ----
+  const rech = l.filter(pl=>pl.estado==='rechazado' && ymd(aFecha_(pl.actualizado))>=desde);
+  const mot={}; rech.forEach(pl=>{ const m=(pl.motivo_rechazo||'Sin motivo').split(':')[0]; mot[m]=(mot[m]||0)+1; });
+  $('#tr-rech').innerHTML = rech.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">${Object.entries(mot).sort((a,b)=>b[1]-a[1]).map(([m,n])=>`<span class="pill">${esc(m)} · ${n}</span>`).join('')}</div>`
+    + rech.slice(0,20).map(pl=>{ const p=pac(pl);
+      return `<div class="item" data-plan="${pl.id}"><div class="t" data-a="ficha" style="cursor:pointer"><b>${esc(nombrePac(p))}</b><span>${$$$(totalPlan(pl))}${pl.motivo_rechazo?' · '+esc(pl.motivo_rechazo):''}</span></div><div class="acts"><button class="btn ghost" data-a="reac" style="padding:6px 10px">Reactivar</button></div></div>`; }).join('')
+    : '<p class="hint">Nadie dijo que no en este período.</p>';
+
+  const b=$('#tr-n'); b.textContent=hoyN||''; b.hidden=!hoyN;
+}
+$('#tr-f').addEventListener('click', e=>{ if(!e.target.dataset.f) return; trF=+e.target.dataset.f; $$('#tr-f button').forEach(b=>b.classList.toggle('on', b===e.target)); pintarTrat().catch(err=>toast(errMsg(err),true)); });
+$('#tr-prof').onchange = e=>{ trProf=e.target.value; pintarTrat().catch(err=>toast(errMsg(err),true)); };
+async function updPlan(pl, cambios){
+  try{ await q(sb.from('planes').update(cambios).eq('id', pl.id)); }
+  catch(e){ if (!esFaltaTabla(e) && !/presentado_en|aceptado_en|seguimiento|motivo_rechazo/.test(e.message||'')) throw e;
+    const base={}; if ('estado' in cambios) base.estado=cambios.estado; if (Object.keys(base).length) await q(sb.from('planes').update(base).eq('id', pl.id)); toast(FALTA_SQL5, true); }
+}
+$('#v-tratamientos').addEventListener('click', async e=>{
+  const it=e.target.closest('[data-plan]'), a=e.target.closest('[data-a]'); if(!it||!a) return;
+  const pl=(S.trPlanes||[]).find(x=>x.id===it.dataset.plan); if(!pl) return; const p=S.pacientes.get(pl.paciente_id);
+  try{
+    if (a.dataset.a==='ficha'){ if(p) abrirFicha(p,'plan'); return; }
+    if (a.dataset.a==='wa'){ if (abrirWa(p, rellenar(S.tpl.seguimiento||TPL_SEG, p, null))){ const s=ymd(addDays(new Date(),4)); await updPlan(pl,{ seguimiento:s }); toast('Listo. Si no responde, vuelve a aparecer el '+fDM(s)+'.'); } }
+    if (a.dataset.a==='wa2'){ const sig=itemsPend(pl)[0]; abrirWa(p, rellenar(`Hola {nombre}! Te escribimos de RN Odontología para coordinar la próxima sesión de tu tratamiento${sig?' ('+sig.nombre.toLowerCase()+')':''}. ¿Qué día y horario te queda cómodo?`, p, null)); return; }
+    if (a.dataset.a==='si'){ await updPlan(pl,{ estado:'aceptado' }); toast('Aceptado. Dale el primer turno.'); const sig=itemsPend(pl)[0]; abrirTurno(null,{ paciente:p, fecha:hoyYmd(), prof:pl.profesional_id||'', motivo: sig?descItem(sig):(pl.titulo||'') }); }
+    if (a.dataset.a==='turno'){ const sig=itemsPend(pl)[0]; abrirTurno(null,{ paciente:p, fecha:hoyYmd(), prof:pl.profesional_id||'', motivo: sig?descItem(sig):'' }); return; }
+    if (a.dataset.a==='no'){ rcPlan=pl; $('#f-rech').reset(); $('#rc-pac').textContent=nombrePac(p)+' · '+$$$(totalPlan(pl)); $('#d-rech').showModal(); return; }
+    if (a.dataset.a==='reac'){ await updPlan(pl,{ estado:'presentado', seguimiento:hoyYmd() }); toast('Volvió a Presupuestos por seguir.'); }
+    await pintarTrat(); contarTrat();
+  }catch(err){ toast(errMsg(err), true); }
+});
+$('#rc-cancel').onclick=()=>$('#d-rech').close();
+$('#f-rech').onsubmit=async e=>{
+  e.preventDefault(); if(!rcPlan) return; const f=e.target, det=f.detalle.value.trim();
+  try{ await updPlan(rcPlan,{ estado:'rechazado', motivo_rechazo: f.motivo.value+(det?': '+det:'') }); $('#d-rech').close(); toast('Anotado.'); rcPlan=null; await pintarTrat(); contarTrat(); }
+  catch(err){ toast(errMsg(err), true); }
+};
+// al cerrar la ficha o el turno, la lista se actualiza
+['#d-ficha','#d-turno'].forEach(d=>$(d).addEventListener('close', ()=>{ if (vista==='tratamientos') setTimeout(()=>{ if(!$('#d-ficha').open && !$('#d-turno').open) pintarTrat().catch(()=>{}); }, 300); }));
 
 /* ---------- CAJA ---------- */
 let cjF='hoy';
@@ -2207,7 +2373,7 @@ async function pintarAjustes(){
   $('#cfg-ttl').textContent = 'Sede ' + (S.cfg.sede||'');
   c.nombre.value=S.cfg.nombre||''; c.sede.value=S.cfg.sede||''; c.direccion.value=S.cfg.direccion||''; c.hora_desde.value=S.cfg.hora_desde; c.hora_hasta.value=S.cfg.hora_hasta; c.duracion.value=S.cfg.duracion;
   $('#cfg-dias').innerHTML=[1,2,3,4,5,6,0].map(d=>`<label class="chk"><input type="checkbox" value="${d}" ${(S.cfg.dias||[]).includes(d)?'checked':''}> ${DIAS3[d]}</label>`).join('');
-  const t=$('#cfg-tpl'); ['recordatorio','cumpleanos','control'].forEach(k=>t[k].value=S.tpl[k]||'');
+  const t=$('#cfg-tpl'); ['recordatorio','cumpleanos','control','seguimiento'].forEach(k=>t[k].value=S.tpl[k]||'');
   $('#prof-add').hidden = perfil.rol==='profesional';
   $('#prof-list').innerHTML = S.prof.map(p=>`<div class="item" data-id="${p.id}"><div class="t" style="display:flex;gap:8px;align-items:center"><span style="width:14px;height:14px;border-radius:4px;background:${esc(p.color)};flex:none"></span><b>${esc(nombreProf(p))}</b></div><span>${perfil.rol==='admin'?`<label class="hint" style="display:inline-flex;gap:4px;align-items:center;margin-right:8px" title="Qué porcentaje de lo que cobra se lleva el profesional">se lleva <input data-pct="${p.id}" type="number" min="0" max="100" value="${p.porcentaje??''}" placeholder="100" style="width:64px;padding:4px 6px">%</label>`:''}${p.activo?'':'<span class="pill">inactivo</span> '}${perfil.rol==='profesional'?'':`<button class="link" data-a="tog">${p.activo?'Desactivar':'Activar'}</button>`}</span></div>`).join('') || `<p class="hint">Todavía no hay profesionales en ${esc(S.cfg.sede||'esta sede')}.</p>`;
   $('#usr-card').hidden = !admin;
@@ -2284,7 +2450,7 @@ $('#cfg-cons').onsubmit=async e=>{ e.preventDefault(); const c=e.target;
     $('#h-sede-sel').innerHTML = S.sedes.map(x=>`<option value="${esc(x.id)}">${esc(x.nombre)}</option>`).join('');
     aplicarSede(); pintarAjustes(); toast('Guardado.');
   }catch(err){ toast(errMsg(err), true); } };
-$('#cfg-tpl').onsubmit=async e=>{ e.preventDefault(); const t=e.target; const v={recordatorio:t.recordatorio.value.trim(), cumpleanos:t.cumpleanos.value.trim(), control:t.control.value.trim()};
+$('#cfg-tpl').onsubmit=async e=>{ e.preventDefault(); const t=e.target; const v={...S.tpl, recordatorio:t.recordatorio.value.trim(), cumpleanos:t.cumpleanos.value.trim(), control:t.control.value.trim(), seguimiento:t.seguimiento.value.trim()};
   try{ await q(sb.from('config').upsert({clave:'plantillas', valor:v})); S.tpl=v; toast('Mensajes guardados.'); }catch(err){ toast(errMsg(err), true); } };
 $('#prof-add').onsubmit=async e=>{ e.preventDefault(); const f=e.target;
   try{ const p=await q(sb.from('profesionales').insert({titulo:f.titulo.value.trim(), nombre:f.nombre.value.trim(), color:f.color.value, sede_id:sedeId}).select().single()); S.profAll.push(p); S.prof.push(p); f.nombre.value=''; pintarProfSelects(); pintarAjustes(); toast('Profesional agregado a '+(S.cfg.sede||'la sede')+'.'); }catch(err){ toast(errMsg(err), true); } };

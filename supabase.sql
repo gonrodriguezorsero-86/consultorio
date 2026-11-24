@@ -569,3 +569,28 @@ drop policy if exists solo_yo on public.mis_numeros;
 create policy solo_yo on public.mis_numeros for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 grant select, insert, update, delete on public.mis_numeros to authenticated;
 select 'listo' as estado, (select count(*) from public.movimientos) as movimientos;
+-- Etapa 5 · Tratamientos: seguimiento de presupuestos y tratamientos en curso
+alter table public.planes add column if not exists presentado_en timestamptz;
+alter table public.planes add column if not exists aceptado_en timestamptz;
+alter table public.planes add column if not exists seguimiento date;
+alter table public.planes add column if not exists motivo_rechazo text not null default '';
+-- fechas automáticas: cuándo se presentó y cuándo se aceptó
+create or replace function public.planes_fechas() returns trigger
+language plpgsql as $$
+begin
+  if new.estado <> 'borrador' and new.presentado_en is null then new.presentado_en = now(); end if;
+  if new.estado in ('aceptado','en_curso','terminado') and new.aceptado_en is null then new.aceptado_en = now(); end if;
+  if new.estado <> 'rechazado' then new.motivo_rechazo = ''; end if;
+  return new;
+end $$;
+drop trigger if exists planes_fechas on public.planes;
+create trigger planes_fechas before insert or update on public.planes for each row execute function public.planes_fechas();
+-- planes que ya existían: se toma la última modificación como fecha aproximada
+update public.planes set presentado_en = actualizado where estado <> 'borrador' and presentado_en is null;
+update public.planes set aceptado_en = actualizado where estado in ('aceptado','en_curso','terminado') and aceptado_en is null;
+create index if not exists planes_sede_estado on public.planes (sede_id, estado);
+-- mensaje de seguimiento de presupuesto
+update public.config set valor = valor || jsonb_build_object('seguimiento',
+  'Hola {nombre}! ¿Cómo estás? Te escribo de RN Odontología por el plan de tratamiento que te pasamos. ¿Te quedó alguna duda? Si querés, te reservamos el primer turno para arrancar.')
+where clave = 'plantillas' and not (valor ? 'seguimiento');
+select count(*) filter (where presentado_en is not null) as presentados, count(*) filter (where aceptado_en is not null) as aceptados from public.planes;
