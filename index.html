@@ -2353,11 +2353,13 @@ function abrirLab(j){
   $('#lab-del').hidden=!j; $('#lab-del').dataset.c=''; $('#lab-del').textContent='Borrar';
   $('#lab-info').textContent = j&&j.carpeta ? 'Archivos en la PC: '+j.carpeta : (j?'Todavía sin archivos en la PC.':'');
   $('#lab-arch').hidden=!j; if(j) $('#lab-drive').href=driveUrl(j.paciente);
-  $('#lab-cobrar').hidden=!(j&&j.estado==='Entregado'); $('#lab-cobrar').textContent='Registrar para cobrar';
+  $('#lab-cobrar').hidden=!(j&&j.estado==='Entregado'&&!esPropio(j.cliente)); $('#lab-cobrar').textContent='Registrar para cobrar';
   if(j&&j.estado==='Entregado') regDe(j.id).then(r=>{ if(r&&labEdit===j) $('#lab-cobrar').textContent='Ya está en el Registro · ver'; });
   $('#d-lab').showModal();
 }
 /* Registro de Trabajos (cobros del laboratorio) y archivos de cada caso */
+// trabajos para el propio Dr. Gonzalo Rodriguez Orsero: no se cobran, no van al Registro
+const esPropio = c => { const n=norm(c); return /rodriguez\s*orsero/.test(n)||(/\bgonzalo\b/.test(n)&&/\brodriguez\b/.test(n)); };
 const driveUrl = p => 'https://drive.google.com/drive/search?q='+encodeURIComponent(p||'');
 let regApp=null, regCargando=null;
 async function regMontar(){
