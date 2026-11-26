@@ -2559,11 +2559,54 @@ $('#imp-file').onchange = async e=>{
 // recibir los datos directo desde una pestaña de Benty abierta en la misma compu (solo desde benty.com.ar)
 window.addEventListener('message', e=>{
   if (!/^https:\/\/[a-z0-9-]+\.benty\.com\.ar$/.test(e.origin)) return;
-  const d=e.data; if(!d||d.fuente!=='benty'||!Array.isArray(d.pacientes)) return;
+  const d=e.data;
+  if (d && (d.fuente==='benty-archivo'||d.fuente==='benty-odo')){ if(perfil&&perfil.rol==='admin') recibirBenty(d, e.source, e.origin); return; }
+  if(!d||d.fuente!=='benty'||!Array.isArray(d.pacientes)) return;
   try{ e.source && e.source.postMessage({ rn:'recibido', n:d.pacientes.length }, e.origin); }catch(_){}
   if (!perfil || perfil.rol!=='admin') return;
   IMP.d=d; irA('ajustes'); setTimeout(()=>{ pintarImp(); const c=$('#imp-card'); if(c){ c.hidden=false; c.scrollIntoView({block:'start'}); } }, 300);
 });
+// fotos/archivos y odontogramas de Benty: llegan de a uno desde la pestaña de Benty
+const BX={ map:null, ya:null, odoYa:null };
+const claveNom = t => normTxt(t).split(' ').filter(Boolean).sort().join(' ');
+async function mapaBenty(){
+  if(BX.map) return BX.map;
+  const ps=await todas('pacientes','id,nombre,apellido,dni,notas,sede_id');
+  const porSeq=new Map(), porNom=new Map(), sedeDe=new Map();
+  ps.forEach(p=>{ const m=/Importado de Benty \(HC (\d+)\)/.exec(p.notas||''); if(m) porSeq.set(m[1],p.id); porNom.set(claveNom(p.nombre+' '+p.apellido),p.id); sedeDe.set(p.id,p.sede_id); });
+  return BX.map={porSeq,porNom,sedeDe};
+}
+const pidBenty=(m,x)=> m.porSeq.get(String(x.seq)) || m.porNom.get(claveNom(x.nombre||''));
+async function recibirBenty(d, src, origin){
+  const resp=o=>{ try{ src.postMessage({ rn:d.fuente, id:d.id, ...o }, origin); }catch(_){} };
+  try{
+    const m=await mapaBenty(); const pid=pidBenty(m,d.paciente); if(!pid) return resp({ ok:false, err:'paciente no encontrado' });
+    const sede=m.sedeDe.get(pid)||sedeId;
+    if(d.fuente==='benty-archivo'){
+      if(!BX.ya){ const ex=await todas('archivos','nota', qq=>qq.like('nota','benty:%')); BX.ya=new Set(ex.map(x=>x.nota)); }
+      const marca='benty:'+d.archivo.key; if(BX.ya.has(marca)) return resp({ ok:true, ya:true });
+      const nom=d.archivo.nombre||'archivo', ext=extDe(nom);
+      const tipo = ['jpg','jpeg','png','gif','webp','heic'].includes(ext)?'foto': ext==='pdf'?'documento': EXT_ESC.includes(ext)?'escaneo':'otro';
+      const limpio=nom.normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w.\-]+/g,'_').slice(-80);
+      const ruta=`${sede}/${pid}/benty-${String(d.archivo.key).replace(/[^\w.\-]+/g,'_').slice(-60)}-${limpio}`.slice(0,400);
+      const mime=d.blob.type&&d.blob.type!=='application/octet-stream'?d.blob.type:({jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',pdf:'application/pdf',gif:'image/gif',webp:'image/webp'}[ext]||'application/octet-stream');
+      const { error } = await sb.storage.from('pacientes').upload(ruta, d.blob, { contentType:mime, upsert:true }); if(error) throw error;
+      await q(sb.from('archivos').insert({ sede_id:sede, paciente_id:pid, tipo, nombre:nom, ruta, tamano:d.blob.size, mime, nota:marca, creado:d.archivo.fecha||new Date().toISOString() }));
+      BX.ya.add(marca); return resp({ ok:true });
+    }
+    if(d.fuente==='benty-odo'){
+      if(!BX.odoYa){ const ex=await todas('evoluciones','datos', qq=>qq.eq('datos->>origen','benty-odo')); BX.odoYa=new Set(ex.map(x=>x.datos&&x.datos.benty_id)); }
+      let n=0;
+      for(const o of d.odontogramas){ if(BX.odoYa.has(o.bid)) continue;
+        await q(sb.from('evoluciones').insert({ sede_id:sede, paciente_id:pid, profesional_id:null, fecha:o.fecha, tipo:'consulta', texto:o.texto, datos:{ origen:'benty-odo', benty_id:o.bid, odontograma:o.datos } })); BX.odoYa.add(o.bid); n++; }
+      const ult=d.odontogramas[d.odontogramas.length-1];
+      const ex=await q(sb.from('odontogramas').select('datos').eq('paciente_id', pid).maybeSingle());
+      const vacio=!ex || !ex.datos || !Object.keys(ex.datos.dientes||{}).length || (ex.datos.origen==='benty');
+      if(ult && vacio) await q(sb.from('odontogramas').upsert({ paciente_id:pid, sede_id:sede, datos:{ ...ult.datos, origen:'benty' } }));
+      return resp({ ok:true, n, odo: !!(ult&&vacio) });
+    }
+  }catch(err){ resp({ ok:false, err:errMsg(err) }); }
+}
 function pintarImp(){
   const d=IMP.d, hoy=new Date().toISOString();
   const fut=d.turnos.filter(t=>t.inicio>=hoy).length;
