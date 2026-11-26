@@ -2545,6 +2545,14 @@ $('#imp-file').onchange = async e=>{
     IMP.d=d; pintarImp();
   }catch(err){ $('#imp-prev').innerHTML=`<p class="hint" style="color:var(--bad)">${esc(err.message||'No se pudo leer el archivo.')}</p>`; }
 };
+// recibir los datos directo desde una pestaña de Benty abierta en la misma compu (solo desde benty.com.ar)
+window.addEventListener('message', e=>{
+  if (!/^https:\/\/[a-z0-9-]+\.benty\.com\.ar$/.test(e.origin)) return;
+  const d=e.data; if(!d||d.fuente!=='benty'||!Array.isArray(d.pacientes)) return;
+  try{ e.source && e.source.postMessage({ rn:'recibido', n:d.pacientes.length }, e.origin); }catch(_){}
+  if (!perfil || perfil.rol!=='admin') return;
+  IMP.d=d; irA('ajustes'); setTimeout(()=>{ pintarImp(); const c=$('#imp-card'); if(c){ c.hidden=false; c.scrollIntoView({block:'start'}); } }, 300);
+});
 function pintarImp(){
   const d=IMP.d, hoy=new Date().toISOString();
   const fut=d.turnos.filter(t=>t.inicio>=hoy).length;
