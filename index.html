@@ -75,6 +75,7 @@ main{padding:12px 16px calc(40px + env(safe-area-inset-bottom,0px));margin:0 aut
 .dcol .s.off{background:repeating-linear-gradient(45deg,#fafaf7,#fafaf7 4px,#f3f2ec 4px,#f3f2ec 8px);cursor:default}
 .ev{position:absolute;left:3px;right:3px;border-radius:7px;padding:3px 6px;font-size:13px;line-height:1.3;overflow:hidden;cursor:pointer;border-left:4px solid var(--c,#F5C400);background:#fffbe6;box-shadow:0 1px 2px rgba(0,0,0,.06)}
 .ev b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev .sill{display:inline-block;font-size:11px;font-weight:600;padding:0 5px;border-radius:4px;background:rgba(0,0,0,.07)}
 .lbw{display:inline-block;font-size:10px;font-weight:700;border-radius:4px;padding:0 4px;margin-right:3px;vertical-align:1px}
 .lbw.falta,.lbw.revisar{background:var(--bad);color:#fff}.lbw.ok{background:var(--ok);color:#fff}
 .labnote{border-radius:9px;padding:8px 10px;font-size:13px;margin:0}
@@ -506,6 +507,7 @@ body.has-full{overflow:hidden}
     <label>Duración (min)<input id="t-dur" type="number" min="5" step="5" required></label>
     <label>Profesional<select id="t-prof"></select></label>
   </div>
+  <label>Sillón<select id="t-sillon"><option value="">Sin asignar</option><option>Madera</option><option>Granito</option></select></label>
   <label>Motivo<input id="t-motivo" list="dl-motivos" autocomplete="off"></label>
   <label>Estado<select id="t-estado">
     <option value="reservado">Reservado</option><option value="confirmado">Confirmado</option><option value="atendido">Atendido</option><option value="ausente">Ausente</option><option value="cancelado">Cancelado</option>
@@ -998,10 +1000,19 @@ async function pintarAgenda(){
       const pr=profById(f.profesional_id);
       h+=`<div class="ev fam" data-fam="${esc(f.titulo)}" style="top:${(am-ini)*pxMin}px;height:${Math.max(18,(bm-am)*pxMin-2)}px"><b>${esc(f.titulo)}</b>${f.todo_el_dia?'Todo el día':hm(new Date(f.inicio))+'–'+hm(new Date(f.fin))}${!aProf&&S.prof.length>1&&pr?' · '+esc(pr.nombre):''}</div>`;
     });
-    enRango.filter(t=>ymd(new Date(t.inicio))===ymd(d)).forEach(t=>{
+    const delDia=enRango.filter(t=>ymd(new Date(t.inicio))===ymd(d)).sort((x,y)=>new Date(x.inicio)-new Date(y.inicio));
+    // turnos que se pisan (dos sillones): se muestran uno al lado del otro
+    const carril=new Map(); let grupo=[], finG=0;
+    const cerrar=()=>{ const n=Math.max(...grupo.map(g=>carril.get(g).c))+1; grupo.forEach(g=>carril.get(g).n=n); grupo=[]; };
+    delDia.forEach(t=>{ const a=+new Date(t.inicio), b=+new Date(t.fin); if(grupo.length && a>=finG){ cerrar(); finG=0; }
+      const ocup=grupo.filter(g=>+new Date(g.fin)>a).map(g=>carril.get(g).c); let c=0; while(ocup.includes(c)) c++;
+      carril.set(t,{c,n:1}); grupo.push(t); finG=Math.max(finG,b); });
+    if(grupo.length) cerrar();
+    delDia.forEach(t=>{
       const a=new Date(t.inicio), b=new Date(t.fin); const top=(a.getHours()*60+a.getMinutes()-ini)*pxMin, alto=Math.max(18,(b-a)/60000*pxMin-2);
-      const p=S.pacientes.get(t.paciente_id), pr=profById(t.profesional_id);
-      h+=`<div class="ev ${t.estado}" data-id="${t.id}" style="top:${top}px;height:${alto}px;--c:${esc(pr?pr.color:'#F5C400')}"><b>${labBadge(t)}${hm(a)} ${esc(nombrePac(p))}</b>${esc(t.motivo||'')}${!aProf&&S.prof.length>1&&pr?' · '+esc(pr.nombre):''}</div>`;
+      const p=S.pacientes.get(t.paciente_id), pr=profById(t.profesional_id); const k=carril.get(t);
+      const lado = k.n>1 ? `left:calc(${k.c*100/k.n}% + 2px);right:auto;width:calc(${100/k.n}% - 4px);` : '';
+      h+=`<div class="ev ${t.estado}" data-id="${t.id}" style="top:${top}px;height:${alto}px;${lado}--c:${esc(pr?pr.color:'#F5C400')}"><b>${labBadge(t)}${hm(a)} ${esc(nombrePac(p))}</b>${t.sillon?'<span class="sill">'+esc(t.sillon)+'</span> ':''}${esc(t.motivo||'')}${!aProf&&S.prof.length>1&&pr?' · '+esc(pr.nombre):''}</div>`;
     });
     if (ymd(d)===ymd(new Date())){ const n=new Date(); const mm=n.getHours()*60+n.getMinutes(); if(mm>=ini&&mm<=fin) h+=`<div class="nowline" style="top:${(mm-ini)*pxMin}px"></div>`; }
     h+=`</div>`;
@@ -1074,7 +1085,7 @@ async function abrirTurno(t, pre){
   $('#t-hora').value = t?hm(a):(pre.hora||S.cfg.hora_desde||'13:00');
   $('#t-dur').value = t?Math.round((new Date(t.fin)-a)/60000):(+S.cfg.duracion||30);
   $('#t-prof').value = t?(t.profesional_id||''):(pre.prof||aProf||(S.prof.find(p=>p.activo)||{}).id||'');
-  $('#t-motivo').value = t?t.motivo:(pre.motivo||''); $('#t-estado').value=t?t.estado:'reservado'; $('#t-notas').value=t?t.notas:'';
+  $('#t-motivo').value = t?t.motivo:(pre.motivo||''); $('#t-estado').value=t?t.estado:'reservado'; $('#t-sillon').value=t?(t.sillon||''):(pre.sillon||''); $('#t-notas').value=t?t.notas:'';
   $('#t-save').dataset.ok=''; $('#t-save').dataset.lab=''; $('#t-save').textContent='Guardar';
   $('#t-del').hidden=!t; $('#t-wa').hidden=!t; $('#t-del').dataset.c='';  $('#t-del').textContent='Borrar';
   $('#t-info').textContent = t&&t.recordatorio_enviado ? 'Recordatorio enviado el '+new Date(t.recordatorio_enviado).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+'.' : '';
@@ -1114,7 +1125,7 @@ $('#f-turno').onsubmit = async e=>{
   e.preventDefault();
   const [y,mo,d]=$('#t-fecha').value.split('-').map(Number), [hh,mi]=$('#t-hora').value.split(':').map(Number);
   const ini=new Date(y,mo-1,d,hh,mi), fin=new Date(ini.getTime()+(+$('#t-dur').value||30)*60000);
-  const row={ sede_id:sedeId, paciente_id:tPac?tPac.id:null, profesional_id:$('#t-prof').value||null, inicio:ini.toISOString(), fin:fin.toISOString(), motivo:$('#t-motivo').value.trim(), estado:$('#t-estado').value, notas:$('#t-notas').value.trim() };
+  const row={ sede_id:sedeId, paciente_id:tPac?tPac.id:null, profesional_id:$('#t-prof').value||null, inicio:ini.toISOString(), fin:fin.toISOString(), motivo:$('#t-motivo').value.trim(), estado:$('#t-estado').value, notas:$('#t-notas').value.trim(), sillon:$('#t-sillon').value };
   if (!row.paciente_id && !row.motivo){ toast('Elegí un paciente o escribí un motivo (por ejemplo "Bloqueado").', true); return; }
   const lr = labParaTurno(row);
   if (lr && lr.nivel!=='ok' && row.estado==='confirmado' && (!tEdit || tEdit.estado!=='confirmado') && $('#t-save').dataset.lab!=='1'){ $('#t-save').dataset.lab='1'; $('#t-save').textContent='Confirmar igual'; toast('El trabajo de laboratorio todavía no está. Tocá "Confirmar igual" si ya lo revisaste.', true); return; }
@@ -2591,17 +2602,29 @@ async function importarBenty(){
     for(let i=0;i<nuevos.length;i+=200){ say(`Cargando pacientes… ${i}/${nuevos.length}`); await q(sb.from('pacientes').insert(nuevos.slice(i,i+200))); res.pn+=Math.min(200,nuevos.length-i); }
 
     say('Revisando turnos que ya están…');
-    const exT=await todas('turnos','paciente_id,inicio');
-    const ya=new Set(exT.map(t=>t.paciente_id+'|'+new Date(t.inicio).getTime()));
-    const tur=[];
+    const exT=await todas('turnos','id,paciente_id,inicio,sillon,estado,notas,origen');
+    const ya=new Map(exT.map(t=>[t.paciente_id+'|'+new Date(t.inicio).getTime(), t]));
+    const tur=[], porSillon={}, arreglar=[]; const MARCA='Se superponía con otro turno en Benty';
     for(const t of d.turnos){ const p=pid[t.paciente_bid]; if(!p) continue;
-      if(ya.has(p+'|'+new Date(t.inicio).getTime())){ res.te++; continue; }
-      tur.push({ sede_id:sedeId, paciente_id:p, profesional_id:profMap[t.profesional_bid]||null, inicio:t.inicio, fin:t.fin, motivo:t.motivo||'', estado:t.estado, notas:t.notas||'', origen:'benty' }); }
+      const e=ya.get(p+'|'+new Date(t.inicio).getTime());
+      if(e){ res.te++;
+        if(e.origen==='benty'){
+          if((e.notas||'').includes(MARCA)) arreglar.push({ id:e.id, estado:t.estado, sillon:t.sillon||'', notas:(e.notas||'').replace(' · '+MARCA,'').replace(MARCA,'').trim() });
+          else if((t.sillon||'')!==(e.sillon||'')) (porSillon[t.sillon||'']=porSillon[t.sillon||'']||[]).push(e.id);
+        }
+        continue; }
+      tur.push({ sede_id:sedeId, paciente_id:p, profesional_id:profMap[t.profesional_bid]||null, inicio:t.inicio, fin:t.fin, motivo:t.motivo||'', estado:t.estado, notas:t.notas||'', sillon:t.sillon||'', origen:'benty' }); }
     for(let i=0;i<tur.length;i+=200){
       say(`Cargando turnos… ${i}/${tur.length}`); const lote=tur.slice(i,i+200);
       try{ await q(sb.from('turnos').insert(lote)); res.tn+=lote.length; }
-      catch(err){ for(const t of lote){ try{ await q(sb.from('turnos').insert(t)); res.tn++; }catch(e2){ try{ await q(sb.from('turnos').insert({...t, notas:((t.notas?t.notas+' · ':'')+'Se superponía con otro turno en Benty'), estado:'cancelado'})); res.tf++; }catch(e3){ res.tf++; } } } }
+      catch(err){ for(const t of lote){ try{ await q(sb.from('turnos').insert(t)); res.tn++; }catch(e2){ try{ await q(sb.from('turnos').insert({...t, sillon:'', notas:((t.notas?t.notas+' · ':'')+'En Benty se pisaba con otro turno del mismo profesional y sillón')})); res.tf++; }catch(e3){ res.tx=(res.tx||0)+1; } } } }
     }
+
+    // corregir turnos ya importados: sillón y los que se habían marcado como cancelados por superponerse
+    for(const [sil,ids] of Object.entries(porSillon)) for(let i=0;i<ids.length;i+=150){ say(`Poniendo el sillón ${sil||'(sin)'}… ${i}/${ids.length}`); await q(sb.from('turnos').update({ sillon:sil }).in('id', ids.slice(i,i+150))); res.ts=(res.ts||0)+Math.min(150,ids.length-i); }
+    for(let i=0;i<arreglar.length;i++){ const a=arreglar[i]; say(`Corrigiendo turnos superpuestos… ${i}/${arreglar.length}`);
+      try{ await q(sb.from('turnos').update({ estado:a.estado, sillon:a.sillon, notas:a.notas }).eq('id', a.id)); res.ta=(res.ta||0)+1; }
+      catch(e){ try{ await q(sb.from('turnos').update({ notas:(a.notas?a.notas+' · ':'')+'En Benty se pisaba con otro turno del mismo profesional y sillón' }).eq('id', a.id)); }catch(_){} res.tb=(res.tb||0)+1; } }
 
     say('Revisando historias clínicas que ya están…');
     const exE=await todas('evoluciones','datos', qq=>qq.eq('datos->>origen','benty'));
@@ -2611,7 +2634,7 @@ async function importarBenty(){
       evs.push({ sede_id:sedeId, paciente_id:p, profesional_id:profMap[v.profesional_bid]||null, fecha:v.fecha, tipo:'consulta', texto:v.texto||'', datos:{ origen:'benty', benty_id:v.bid } }); }
     for(let i=0;i<evs.length;i+=200){ say(`Cargando historias clínicas… ${i}/${evs.length}`); await q(sb.from('evoluciones').insert(evs.slice(i,i+200))); res.en+=Math.min(200,evs.length-i); }
 
-    log.innerHTML=`<b style="color:var(--ok)">Listo.</b> Pacientes: ${res.pn} nuevos, ${res.pe} ya estaban. Turnos: ${res.tn} cargados${res.te?`, ${res.te} ya estaban`:''}${res.tf?`, ${res.tf} se superponían con otro y quedaron como cancelados`:''}. Historias clínicas: ${res.en} entradas${res.ee?`, ${res.ee} ya estaban`:''}.`;
+    log.innerHTML=`<b style="color:var(--ok)">Listo.</b> Pacientes: ${res.pn} nuevos, ${res.pe} ya estaban. Turnos: ${res.tn} cargados${res.te?`, ${res.te} ya estaban`:''}${res.tf?`, ${res.tf} se pisaban en el mismo sillón y quedaron sin sillón asignado (con una nota)`:''}${res.tx?`, ${res.tx} no se pudieron cargar`:''}. Historias clínicas: ${res.en} entradas${res.ee?`, ${res.ee} ya estaban`:''}.${res.ts?` Sillón asignado a ${res.ts} turnos.`:''}${res.ta?` ${res.ta} turnos superpuestos corregidos a su estado real.`:''}${res.tb?` ${res.tb} se pisaban de verdad (mismo profesional y sillón) y quedaron como estaban, con una nota.`:''}`;
     toast('Importación terminada.'); S.pacientes.clear();
   }catch(err){ log.innerHTML=`<span style="color:var(--bad)">Se cortó: ${esc(errMsg(err))}. Lo que ya se cargó queda; podés volver a tocar Importar y sigue sin repetir.</span>`; b.disabled=false; }
   $('#imp-file').disabled=false;

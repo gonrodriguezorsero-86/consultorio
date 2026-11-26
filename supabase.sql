@@ -594,3 +594,10 @@ update public.config set valor = valor || jsonb_build_object('seguimiento',
   'Hola {nombre}! ¿Cómo estás? Te escribo de RN Odontología por el plan de tratamiento que te pasamos. ¿Te quedó alguna duda? Si querés, te reservamos el primer turno para arrancar.')
 where clave = 'plantillas' and not (valor ? 'seguimiento');
 select count(*) filter (where presentado_en is not null) as presentados, count(*) filter (where aceptado_en is not null) as aceptados from public.planes;
+
+-- Etapa 5 · Sillones (dos sillones en Avellaneda: un profesional puede tener un turno en cada uno a la vez)
+alter table public.turnos add column if not exists sillon text not null default '';
+alter table public.turnos drop constraint if exists turnos_sin_superposicion;
+alter table public.turnos add constraint turnos_sin_superposicion
+  exclude using gist (profesional_id with =, sillon with =, tstzrange(inicio, fin) with &&)
+  where (estado <> 'cancelado' and profesional_id is not null);
