@@ -463,6 +463,12 @@ body.has-full{overflow:hidden}
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><button type="button" class="btn ghost" id="arc-add" style="padding:6px 10px">+ Prestación</button><span class="hint">Aumentar todo</span><input id="arc-pct" type="number" style="width:80px" placeholder="%"><button type="button" class="btn ghost" id="arc-aum" style="padding:6px 10px">Aplicar</button></div>
           <div class="tw"><table class="t capas"><thead><tr><th>Prestación</th><th class="desk-only">Categoría</th><th style="width:130px">Precio $</th><th style="width:30px"></th></tr></thead><tbody id="arc-list"></tbody></table></div>
         </div>
+        <div class="card" style="display:flex;flex-direction:column;gap:10px" id="imp-card" hidden>
+          <h3>Importar desde Benty</h3>
+          <p class="hint">Subí el archivo exportado de Benty. Primero ves qué se va a cargar; los pacientes, turnos e historias que ya estén no se repiten.</p>
+          <input type="file" id="imp-file" accept=".json,application/json">
+          <div id="imp-prev"></div>
+        </div>
         <div class="card" style="display:flex;flex-direction:column;gap:10px" id="gc-card">
           <h3>Google Calendar</h3>
           <p class="hint">Cada turno aparece como "Ocupado – consultorio" (sin datos del paciente) en el calendario "RN · Turnos". Lo que se cargue en "RN · Familia" bloquea la agenda.</p>
@@ -2409,6 +2415,7 @@ async function pintarAjustes(){
   $('#prof-add').hidden = perfil.rol==='profesional';
   $('#prof-list').innerHTML = S.prof.map(p=>`<div class="item" data-id="${p.id}"><div class="t" style="display:flex;gap:8px;align-items:center"><span style="width:14px;height:14px;border-radius:4px;background:${esc(p.color)};flex:none"></span><b>${esc(nombreProf(p))}</b></div><span>${perfil.rol==='admin'?`<label class="hint" style="display:inline-flex;gap:4px;align-items:center;margin-right:8px" title="Qué porcentaje de lo que cobra se lleva el profesional">se lleva <input data-pct="${p.id}" type="number" min="0" max="100" value="${p.porcentaje??''}" placeholder="100" style="width:64px;padding:4px 6px">%</label>`:''}${p.activo?'':'<span class="pill">inactivo</span> '}${perfil.rol==='profesional'?'':`<button class="link" data-a="tog">${p.activo?'Desactivar':'Activar'}</button>`}</span></div>`).join('') || `<p class="hint">Todavía no hay profesionales en ${esc(S.cfg.sede||'esta sede')}.</p>`;
   $('#usr-card').hidden = !admin;
+  $('#imp-card').hidden = !admin;
   if (admin){
     S.personal = await q(sb.from('personal').select('*').order('creado'));
     $('#usr-list').innerHTML = S.personal.map(u=>{ const yo=u.user_id===me.id;
@@ -2523,6 +2530,82 @@ async function iniciar(){
   setTimeout(()=>toast(msg, g!=='ok'), 800); LS.set('rn_tab','ajustes'); u.searchParams.delete('gcal'); u.searchParams.delete('msg'); history.replaceState(null,'',u.pathname+u.search); })();
 if (conn) conectar();
 iniciar();
+/* ---------- IMPORTAR DESDE BENTY ---------- */
+const IMP = { d:null };
+const normTxt = t => String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9ñ ]/g,' ').replace(/\s+/g,' ').trim();
+const normDni = t => String(t||'').replace(/\D/g,'');
+async function todas(tabla, cols, filtro){
+  const out=[]; for(let i=0;;i+=1000){ let qq=sb.from(tabla).select(cols).eq('sede_id', sedeId).range(i,i+999); if(filtro) qq=filtro(qq); const r=await q(qq); out.push(...r); if(r.length<1000) break; } return out;
+}
+$('#imp-file').onchange = async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{
+    const d=JSON.parse(await f.text());
+    if(d.fuente!=='benty'||!Array.isArray(d.pacientes)) throw new Error('Ese archivo no es una exportación de Benty.');
+    IMP.d=d; pintarImp();
+  }catch(err){ $('#imp-prev').innerHTML=`<p class="hint" style="color:var(--bad)">${esc(err.message||'No se pudo leer el archivo.')}</p>`; }
+};
+function pintarImp(){
+  const d=IMP.d, hoy=new Date().toISOString();
+  const fut=d.turnos.filter(t=>t.inicio>=hoy).length;
+  const sede=(S.sedes.find(x=>x.id===sedeId)||{}).nombre||sedeId;
+  const opts=sel=>`<option value="">Sin profesional</option>`+S.prof.map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nombre)}</option>`).join('');
+  const guess=n=>{ const a=normTxt(n).split(' '); const m=S.prof.find(p=>{ const b=normTxt(p.nombre); return a.filter(w=>w.length>2&&b.includes(w)).length>=Math.min(2,a.length); }); return m?m.id:''; };
+  $('#imp-prev').innerHTML=`<div class="card" style="background:var(--soft);display:flex;flex-direction:column;gap:8px">
+    <b>Se va a cargar en la sede ${esc(sede)}:</b>
+    <div>${d.pacientes.length} pacientes · ${d.turnos.length} turnos (${fut} futuros) · ${d.evoluciones.length} entradas de historia clínica</div>
+    <p class="hint">¿Quién es quién? Cada profesional de Benty con el de esta app (los turnos e historias quedan a su nombre):</p>
+    ${d.profesionales.map(p=>`<label style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center"><span>${esc(p.nombre)}</span><select data-bprof="${esc(p.id)}">${opts(guess(p.nombre))}</select></label>`).join('')}
+    <button class="btn" id="imp-go">Importar</button>
+    <div id="imp-log" class="hint"></div></div>`;
+  $('#imp-go').onclick=importarBenty;
+}
+async function importarBenty(){
+  const d=IMP.d, b=$('#imp-go'), log=$('#imp-log'); b.disabled=true; $('#imp-file').disabled=true;
+  const say=t=>{ log.textContent=t; };
+  const profMap={}; $$('#imp-prev [data-bprof]').forEach(s=>profMap[s.dataset.bprof]=s.value||null);
+  const res={pn:0,pe:0,tn:0,te:0,tf:0,en:0,ee:0};
+  try{
+    say('Revisando pacientes que ya están…');
+    const ex=await todas('pacientes','id,nombre,apellido,dni');
+    const porDni=new Map(), porNom=new Map();
+    ex.forEach(p=>{ const k=normDni(p.dni); if(k.length>=6) porDni.set(k,p.id); porNom.set(normTxt(p.nombre+' '+p.apellido),p.id); });
+    const pid={}; const nuevos=[];
+    for(const p of d.pacientes){
+      const k=normDni(p.dni), n=normTxt(p.nombre+' '+p.apellido);
+      const id=(k.length>=6&&porDni.get(k))||porNom.get(n);
+      if(id){ pid[p.bid]=id; res.pe++; continue; }
+      const nid=crypto.randomUUID(); pid[p.bid]=nid; porNom.set(n,nid); if(k.length>=6) porDni.set(k,nid);
+      nuevos.push({ id:nid, sede_id:sedeId, nombre:p.nombre||'(sin nombre)', apellido:p.apellido||'', dni:p.dni||'', telefono:p.telefono||'', email:p.email||'', fecha_nac:p.fecha_nac||null, obra_social:p.obra_social||'', nro_afiliado:p.nro_afiliado||'', direccion:p.direccion||'', como_nos_conocio:p.como_nos_conocio||'', notas:p.notas||'' });
+    }
+    for(let i=0;i<nuevos.length;i+=200){ say(`Cargando pacientes… ${i}/${nuevos.length}`); await q(sb.from('pacientes').insert(nuevos.slice(i,i+200))); res.pn+=Math.min(200,nuevos.length-i); }
+
+    say('Revisando turnos que ya están…');
+    const exT=await todas('turnos','paciente_id,inicio');
+    const ya=new Set(exT.map(t=>t.paciente_id+'|'+new Date(t.inicio).getTime()));
+    const tur=[];
+    for(const t of d.turnos){ const p=pid[t.paciente_bid]; if(!p) continue;
+      if(ya.has(p+'|'+new Date(t.inicio).getTime())){ res.te++; continue; }
+      tur.push({ sede_id:sedeId, paciente_id:p, profesional_id:profMap[t.profesional_bid]||null, inicio:t.inicio, fin:t.fin, motivo:t.motivo||'', estado:t.estado, notas:t.notas||'', origen:'benty' }); }
+    for(let i=0;i<tur.length;i+=200){
+      say(`Cargando turnos… ${i}/${tur.length}`); const lote=tur.slice(i,i+200);
+      try{ await q(sb.from('turnos').insert(lote)); res.tn+=lote.length; }
+      catch(err){ for(const t of lote){ try{ await q(sb.from('turnos').insert(t)); res.tn++; }catch(e2){ try{ await q(sb.from('turnos').insert({...t, notas:((t.notas?t.notas+' · ':'')+'Se superponía con otro turno en Benty'), estado:'cancelado'})); res.tf++; }catch(e3){ res.tf++; } } } }
+    }
+
+    say('Revisando historias clínicas que ya están…');
+    const exE=await todas('evoluciones','datos', qq=>qq.eq('datos->>origen','benty'));
+    const yaE=new Set(exE.map(x=>x.datos&&x.datos.benty_id));
+    const evs=[];
+    for(const v of d.evoluciones){ const p=pid[v.paciente_bid]; if(!p) continue; if(yaE.has(v.bid)){ res.ee++; continue; }
+      evs.push({ sede_id:sedeId, paciente_id:p, profesional_id:profMap[v.profesional_bid]||null, fecha:v.fecha, tipo:'consulta', texto:v.texto||'', datos:{ origen:'benty', benty_id:v.bid } }); }
+    for(let i=0;i<evs.length;i+=200){ say(`Cargando historias clínicas… ${i}/${evs.length}`); await q(sb.from('evoluciones').insert(evs.slice(i,i+200))); res.en+=Math.min(200,evs.length-i); }
+
+    log.innerHTML=`<b style="color:var(--ok)">Listo.</b> Pacientes: ${res.pn} nuevos, ${res.pe} ya estaban. Turnos: ${res.tn} cargados${res.te?`, ${res.te} ya estaban`:''}${res.tf?`, ${res.tf} se superponían con otro y quedaron como cancelados`:''}. Historias clínicas: ${res.en} entradas${res.ee?`, ${res.ee} ya estaban`:''}.`;
+    toast('Importación terminada.'); S.pacientes.clear();
+  }catch(err){ log.innerHTML=`<span style="color:var(--bad)">Se cortó: ${esc(errMsg(err))}. Lo que ya se cargó queda; podés volver a tocar Importar y sigue sin repetir.</span>`; b.disabled=false; }
+  $('#imp-file').disabled=false;
+}
 /* ---------- tarjetas a pantalla completa ---------- */
 (function(){
   const sel='#v-ajustes .card, #v-caja .card, #v-finanzas .card';
