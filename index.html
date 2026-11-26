@@ -2557,13 +2557,13 @@ function pintarImp(){
   const d=IMP.d, hoy=new Date().toISOString();
   const fut=d.turnos.filter(t=>t.inicio>=hoy).length;
   const sede=(S.sedes.find(x=>x.id===sedeId)||{}).nombre||sedeId;
-  const opts=sel=>`<option value="">Sin profesional</option>`+S.prof.map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nombre)}</option>`).join('');
+  const opts=(sel,nom)=>`<option value="">Sin profesional</option><option value="__nuevo" ${sel==='__nuevo'?'selected':''}>Crear profesional: ${esc(nom)}</option>`+S.prof.map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nombre)}</option>`).join('');
   const guess=n=>{ const a=normTxt(n).split(' '); const m=S.prof.find(p=>{ const b=normTxt(p.nombre); return a.filter(w=>w.length>2&&b.includes(w)).length>=Math.min(2,a.length); }); return m?m.id:''; };
   $('#imp-prev').innerHTML=`<div class="card" style="background:var(--soft);display:flex;flex-direction:column;gap:8px">
     <b>Se va a cargar en la sede ${esc(sede)}:</b>
     <div>${d.pacientes.length} pacientes · ${d.turnos.length} turnos (${fut} futuros) · ${d.evoluciones.length} entradas de historia clínica</div>
     <p class="hint">¿Quién es quién? Cada profesional de Benty con el de esta app (los turnos e historias quedan a su nombre):</p>
-    ${d.profesionales.map(p=>`<label style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center"><span>${esc(p.nombre)}</span><select data-bprof="${esc(p.id)}">${opts(guess(p.nombre))}</select></label>`).join('')}
+    ${d.profesionales.map(p=>`<label style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center"><span>${esc(p.nombre)}</span><select data-bprof="${esc(p.id)}" data-bnom="${esc(p.nombre)}">${opts(guess(p.nombre)||'__nuevo',p.nombre)}</select></label>`).join('')}
     <button class="btn" id="imp-go">Importar</button>
     <div id="imp-log" class="hint"></div></div>`;
   $('#imp-go').onclick=importarBenty;
@@ -2571,9 +2571,11 @@ function pintarImp(){
 async function importarBenty(){
   const d=IMP.d, b=$('#imp-go'), log=$('#imp-log'); b.disabled=true; $('#imp-file').disabled=true;
   const say=t=>{ log.textContent=t; };
-  const profMap={}; $$('#imp-prev [data-bprof]').forEach(s=>profMap[s.dataset.bprof]=s.value||null);
+  const profMap={}; const crear=[];
+  $$('#imp-prev [data-bprof]').forEach(s=>{ if(s.value==='__nuevo') crear.push([s.dataset.bprof, s.dataset.bnom]); else profMap[s.dataset.bprof]=s.value||null; });
   const res={pn:0,pe:0,tn:0,te:0,tf:0,en:0,ee:0};
   try{
+    for(const [bid,nom] of crear){ say('Creando profesional '+nom+'…'); const pr=await q(sb.from('profesionales').insert({ nombre:nom, titulo:'Dra.', sede_id:sedeId }).select().single()); S.profAll.push(pr); S.prof.push(pr); profMap[bid]=pr.id; }
     say('Revisando pacientes que ya están…');
     const ex=await todas('pacientes','id,nombre,apellido,dni');
     const porDni=new Map(), porNom=new Map();
