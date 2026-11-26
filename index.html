@@ -2609,7 +2609,7 @@ async function importarBenty(){
       const e=ya.get(p+'|'+new Date(t.inicio).getTime());
       if(e){ res.te++;
         if(e.origen==='benty'){
-          if((e.notas||'').includes(MARCA)) arreglar.push({ id:e.id, estado:t.estado, sillon:t.sillon||'', notas:(e.notas||'').replace(' · '+MARCA,'').replace(MARCA,'').trim() });
+          if((e.notas||'').includes(MARCA) || ((e.notas||'').includes('se pisaba con otro turno') && e.estado==='cancelado' && t.estado!=='cancelado')) arreglar.push({ id:e.id, estado:t.estado, sillon:t.sillon||'', notas:(e.notas||'').replace(' · '+MARCA,'').replace(MARCA,'').trim() });
           else if((t.sillon||'')!==(e.sillon||'')) (porSillon[t.sillon||'']=porSillon[t.sillon||'']||[]).push(e.id);
         }
         continue; }
@@ -2624,7 +2624,7 @@ async function importarBenty(){
     for(const [sil,ids] of Object.entries(porSillon)) for(let i=0;i<ids.length;i+=150){ say(`Poniendo el sillón ${sil||'(sin)'}… ${i}/${ids.length}`); await q(sb.from('turnos').update({ sillon:sil }).in('id', ids.slice(i,i+150))); res.ts=(res.ts||0)+Math.min(150,ids.length-i); }
     for(let i=0;i<arreglar.length;i++){ const a=arreglar[i]; say(`Corrigiendo turnos superpuestos… ${i}/${arreglar.length}`);
       try{ await q(sb.from('turnos').update({ estado:a.estado, sillon:a.sillon, notas:a.notas }).eq('id', a.id)); res.ta=(res.ta||0)+1; }
-      catch(e){ try{ await q(sb.from('turnos').update({ notas:(a.notas?a.notas+' · ':'')+'En Benty se pisaba con otro turno del mismo profesional y sillón' }).eq('id', a.id)); }catch(_){} res.tb=(res.tb||0)+1; } }
+      catch(e){ try{ await q(sb.from('turnos').update({ estado:a.estado, sillon:'', notas:(a.notas?a.notas+' · ':'')+'En Benty se pisaba con otro turno del mismo profesional y sillón ('+(a.sillon||'?')+')' }).eq('id', a.id)); }catch(_){} res.tb=(res.tb||0)+1; } }
 
     say('Revisando historias clínicas que ya están…');
     const exE=await todas('evoluciones','datos', qq=>qq.eq('datos->>origen','benty'));
@@ -2634,7 +2634,7 @@ async function importarBenty(){
       evs.push({ sede_id:sedeId, paciente_id:p, profesional_id:profMap[v.profesional_bid]||null, fecha:v.fecha, tipo:'consulta', texto:v.texto||'', datos:{ origen:'benty', benty_id:v.bid } }); }
     for(let i=0;i<evs.length;i+=200){ say(`Cargando historias clínicas… ${i}/${evs.length}`); await q(sb.from('evoluciones').insert(evs.slice(i,i+200))); res.en+=Math.min(200,evs.length-i); }
 
-    log.innerHTML=`<b style="color:var(--ok)">Listo.</b> Pacientes: ${res.pn} nuevos, ${res.pe} ya estaban. Turnos: ${res.tn} cargados${res.te?`, ${res.te} ya estaban`:''}${res.tf?`, ${res.tf} se pisaban en el mismo sillón y quedaron sin sillón asignado (con una nota)`:''}${res.tx?`, ${res.tx} no se pudieron cargar`:''}. Historias clínicas: ${res.en} entradas${res.ee?`, ${res.ee} ya estaban`:''}.${res.ts?` Sillón asignado a ${res.ts} turnos.`:''}${res.ta?` ${res.ta} turnos superpuestos corregidos a su estado real.`:''}${res.tb?` ${res.tb} se pisaban de verdad (mismo profesional y sillón) y quedaron como estaban, con una nota.`:''}`;
+    log.innerHTML=`<b style="color:var(--ok)">Listo.</b> Pacientes: ${res.pn} nuevos, ${res.pe} ya estaban. Turnos: ${res.tn} cargados${res.te?`, ${res.te} ya estaban`:''}${res.tf?`, ${res.tf} se pisaban en el mismo sillón y quedaron sin sillón asignado (con una nota)`:''}${res.tx?`, ${res.tx} no se pudieron cargar`:''}. Historias clínicas: ${res.en} entradas${res.ee?`, ${res.ee} ya estaban`:''}.${res.ts?` Sillón asignado a ${res.ts} turnos.`:''}${res.ta?` ${res.ta} turnos superpuestos corregidos a su estado real.`:''}${res.tb?` ${res.tb} se pisaban en el mismo sillón: quedaron con su estado real, sin sillón y con una nota.`:''}`;
     toast('Importación terminada.'); S.pacientes.clear();
   }catch(err){ log.innerHTML=`<span style="color:var(--bad)">Se cortó: ${esc(errMsg(err))}. Lo que ya se cargó queda; podés volver a tocar Importar y sigue sin repetir.</span>`; b.disabled=false; }
   $('#imp-file').disabled=false;
